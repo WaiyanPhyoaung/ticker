@@ -2,13 +2,13 @@
 
 Ticker is a cross-platform desktop application built with [Tauri](https://tauri.app/), [React](https://reactjs.org/), and [Vite](https://vitejs.dev/).
 
-## Prerequisites
+## Download the App
 
-Before you can develop or build the application, make sure you have the following installed:
+You can download the latest version of Ticker for your operating system from our [Releases page](https://github.com/WaiyanPhyoaung/ticker/releases/latest).
 
-1. **Node.js** (v16 or newer) - [Download here](https://nodejs.org/)
-2. **Rust** - [Download here](https://www.rust-lang.org/tools/install) (Required by Tauri)
-3. Platform-specific dependencies (e.g., C++ build tools on Windows, Xcode on macOS, or webkit2gtk on Linux). See the [Tauri Prerequisites guide](https://tauri.app/v1/guides/getting-started/prerequisites) for more details.
+- **Windows**: Download the `.msi` or `.exe` installer.
+- **macOS**: Download the `.dmg` or `.app.tar.gz` file.
+- **Linux**: Download the `.AppImage` or `.deb` file.
 
 ## Getting Started
 
