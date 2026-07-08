@@ -1,6 +1,10 @@
 # Ticker
 
-Ticker is a cross-platform desktop application built with [Tauri](https://tauri.app/), [React](https://reactjs.org/), and [Vite](https://vitejs.dev/).
+Ticker is a lightweight, cross-platform desktop application designed specifically for remote workers who need to keep their computer "active." 
+
+Whether you're reading a long document, stepping away for a coffee, or just need to prevent your screen from sleeping and your messaging apps (like Teams or Slack) from showing you as "Away", Ticker has you covered. It allows you to input any custom text and specify an exact time interval. Ticker will then automatically simulate keyboard events typing that text at your chosen interval, safely keeping your machine awake.
+
+Built with [Tauri](https://tauri.app/), [React](https://reactjs.org/), and [Vite](https://vitejs.dev/), Ticker is blazing fast, memory efficient, and runs seamlessly on Windows, macOS, and Linux.
 
 ## Download the App
 
