@@ -59,4 +59,5 @@ jobs:
           releaseBody: "Automated build of the latest commit on main."
           releaseDraft: false
           prerelease: true
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
