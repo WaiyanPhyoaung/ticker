@@ -98,7 +98,6 @@ fn start_typing(
     let cancel_token = Arc::new(AtomicBool::new(false));
     let cancel_token_clone = Arc::clone(&cancel_token);
     let phrase_clone = phrase.clone();
-    let interval = Duration::from_secs(interval_seconds);
 
     std::thread::spawn(move || {
         let mut enigo = Enigo::new(&Settings::default()).expect("Failed to init Enigo");
@@ -159,6 +158,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(AppState {
             is_running: false,
             cancel_token: None,
