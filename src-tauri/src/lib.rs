@@ -111,19 +111,24 @@ fn start_typing(
                 println!("Timer stopped");
                 break;
             }
-            std::thread::sleep(interval);
-            if cancel_token_clone.load(Ordering::Relaxed) {
-                println!("Timer stopped");
-                break;
-            }
+
             println!("Tick: typing -> {}", phrase_clone);
             for segment in parse_phrase(&phrase_clone) {
                 let result = match segment {
-                    Segment::Text(text) => enigo.text(&text),
+                    Segment::Text(ref text) => enigo.text(text),
                     Segment::Key(key) => enigo.key(key, Direction::Click),
                 };
                 if let Err(e) = result {
                     eprintln!("Typing error: {:?}", e);
+                }
+            }
+
+            // Sleep in 100ms chunks to remain responsive to cancel token
+            let chunks = interval_seconds * 10;
+            for _ in 0..chunks {
+                std::thread::sleep(Duration::from_millis(100));
+                if cancel_token_clone.load(Ordering::Relaxed) {
+                    break;
                 }
             }
         }
