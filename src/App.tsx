@@ -32,22 +32,52 @@ function App() {
   const [currentPlatform, setCurrentPlatform] = useState<string>("unknown");
   const phraseInputRef = useRef<HTMLInputElement>(null);
 
-  // Updater states
-  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
+  // Background Updater states
+  const [updateReady, setUpdateReady] = useState(false);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
-  const [updateStatusText, setUpdateStatusText] = useState("Downloading...");
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
+  const startAutoUpdate = async (update: Update) => {
+    setIsDownloadingUpdate(true);
+    setUpdateVersion(update.version);
+    setUpdateProgress(0);
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength ?? 0;
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            if (contentLength > 0) {
+              setUpdateProgress(Math.round((downloaded / contentLength) * 100));
+            }
+            break;
+          case "Finished":
+            break;
+        }
+      });
+      setIsDownloadingUpdate(false);
+      setUpdateReady(true);
+    } catch (err) {
+      console.error("Auto-download update failed:", err);
+      setIsDownloadingUpdate(false);
+    }
+  };
+
   const checkForUpdates = useCallback(async (manual = false) => {
-    if (isCheckingUpdate || isUpdating) return;
+    if (isCheckingUpdate || isDownloadingUpdate || updateReady) return;
     setIsCheckingUpdate(true);
     setUpdateMessage(null);
     try {
       const update = await check();
       if (update) {
-        setAvailableUpdate(update);
+        void startAutoUpdate(update);
       } else if (manual) {
         setUpdateMessage("Ticker is up to date");
         setTimeout(() => setUpdateMessage(null), 3000);
@@ -61,39 +91,7 @@ function App() {
     } finally {
       setIsCheckingUpdate(false);
     }
-  }, [isCheckingUpdate, isUpdating]);
-
-  const handleInstallUpdate = async () => {
-    if (!availableUpdate || isUpdating) return;
-    setIsUpdating(true);
-    setUpdateStatusText("Downloading update...");
-    setUpdateProgress(0);
-    try {
-      let downloaded = 0;
-      let contentLength = 0;
-      await availableUpdate.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength ?? 0;
-            break;
-          case "Progress":
-            downloaded += event.data.chunkLength;
-            if (contentLength > 0) {
-              setUpdateProgress(Math.round((downloaded / contentLength) * 100));
-            }
-            break;
-          case "Finished":
-            setUpdateStatusText("Installing & Restarting...");
-            break;
-        }
-      });
-      await relaunch();
-    } catch (err) {
-      console.error("Failed to install update:", err);
-      setErrorMessage("Failed to install update.");
-      setIsUpdating(false);
-    }
-  };
+  }, [isCheckingUpdate, isDownloadingUpdate, updateReady]);
 
   useEffect(() => {
     const hasSeenPermission =
@@ -265,48 +263,44 @@ function App() {
           </div>
         </div>
 
-        {/* Update Notification */}
-        {availableUpdate && (
-          <div className="mb-5 rounded-xl border border-indigo-500/25 bg-indigo-950/40 p-3.5 backdrop-blur-sm">
-            <div className="flex items-center justify-between">
+        {/* Update Downloaded & Ready to Restart */}
+        {updateReady && (
+          <div className="mb-5 rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-3.5 backdrop-blur-sm shadow-lg shadow-emerald-950/40">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-xs font-medium text-indigo-200">
-                  Update v{availableUpdate.version} ready
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-semibold text-emerald-200">
+                  Update v{updateVersion} ready
                 </span>
               </div>
-              {!isUpdating && (
-                <button
-                  type="button"
-                  onClick={() => setAvailableUpdate(null)}
-                  className="text-xs text-neutral-400 hover:text-neutral-200"
-                >
-                  ✕
-                </button>
-              )}
             </div>
-            {isUpdating ? (
-              <div className="mt-2.5 space-y-1.5">
-                <div className="flex justify-between text-[10px] text-indigo-300">
-                  <span>{updateStatusText}</span>
-                  <span>{updateProgress > 0 ? `${updateProgress}%` : ""}</span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-950">
-                  <div
-                    className="h-full bg-indigo-500 transition-all duration-300 rounded-full"
-                    style={{ width: `${Math.max(updateProgress, 6)}%` }}
-                  />
-                </div>
+            <button
+              type="button"
+              onClick={() => void relaunch()}
+              className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 py-2 text-xs font-bold text-black transition-all active:scale-[0.98] shadow-sm flex items-center justify-center gap-1.5"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Restart to Update
+            </button>
+          </div>
+        )}
+
+        {/* Background Downloading Indicator */}
+        {isDownloadingUpdate && (
+          <div className="mb-5 rounded-2xl border border-indigo-500/25 bg-indigo-950/40 p-3.5 backdrop-blur-sm">
+            <div className="flex items-center justify-between text-xs text-indigo-200 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-ping" />
+                <span className="font-medium">Downloading update v{updateVersion}...</span>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleInstallUpdate()}
-                className="mt-2.5 w-full rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
-              >
-                Install & Restart
-              </button>
-            )}
+              <span className="font-mono text-[11px] text-indigo-300 font-semibold">{updateProgress}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-950">
+              <div
+                className="h-full bg-indigo-500 transition-all duration-300 rounded-full"
+                style={{ width: `${Math.max(updateProgress, 6)}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -447,7 +441,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => void checkForUpdates(true)}
-                disabled={isCheckingUpdate || isUpdating}
+                disabled={isCheckingUpdate || isDownloadingUpdate}
                 className="text-[11px] text-neutral-400 hover:text-white transition-colors disabled:opacity-50"
               >
                 {isCheckingUpdate ? "Checking..." : updateMessage || "Check for updates"}
