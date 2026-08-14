@@ -36,7 +36,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBQUU1OTNBRjY1Q0M3NzUKUldSMXgxejJPbG11U3F2bWYyRE11Mm9JOWtWdXNzT0pJend2em93WGJua1VoUTNDT3NDYmZESVAK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzMjlDOTYxNUJGM0E1Q0QKUldUTnBmTmJZY2twZytnUXkvcy9hSnp5TmxudTVuc1hENWJXdDBuWDZLb0ZBTDZzMVd5cmM4Z2cK",
       "endpoints": [
         "https://github.com/WaiyanPhyoaung/ticker/releases/latest/download/latest.json"
       ]
