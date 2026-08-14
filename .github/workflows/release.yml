@@ -47,12 +47,39 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Setup Tauri Signing Key
+        env:
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const os = require("os");
+            const rawKey = (process.env.RAW_SIGNING_KEY || "").trim();
+            if (!rawKey) {
+              console.error("Warning: TAURI_SIGNING_PRIVATE_KEY secret is not set!");
+              process.exit(1);
+            }
+            let keyContent = rawKey;
+            if (rawKey.startsWith("dW50cnVzdGVk") || (!rawKey.startsWith("untrusted comment") && !rawKey.includes("\n"))) {
+              try {
+                keyContent = Buffer.from(rawKey, "base64").toString("utf-8");
+              } catch (e) {
+                console.error("Base64 decode failed, using raw string:", e);
+              }
+            }
+            const tauriDir = path.join(os.homedir(), ".tauri");
+            fs.mkdirSync(tauriDir, { recursive: true });
+            const keyPath = path.join(tauriDir, "ticker.key");
+            fs.writeFileSync(keyPath, keyContent.trim() + "\n");
+            console.log("Successfully prepared signing key at:", keyPath);
+            fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${keyPath}\nTAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n`);
+          '
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: latest
           releaseName: "Latest Build"
@@ -61,3 +88,4 @@ jobs:
           prerelease: true
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
