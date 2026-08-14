@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
@@ -7,18 +7,15 @@ use tauri::State;
 
 struct AppState {
     is_running: bool,
-    cancel_token: Option<Arc<AtomicBool>>,
+    stop_sender: Option<Sender<()>>,
 }
 
-/// A single step to perform when the timer ticks: either literal text to type,
-/// or a special key to press (arrow keys, space, ...).
+#[derive(Clone, Debug)]
 enum Segment {
     Text(String),
     Key(Key),
 }
 
-/// Map a `{token}` name to a special key. Returns `None` for unknown tokens so
-/// they can be treated as literal text instead.
 fn token_to_key(token: &str) -> Option<Key> {
     match token.to_ascii_lowercase().as_str() {
         "up" => Some(Key::UpArrow),
@@ -30,9 +27,6 @@ fn token_to_key(token: &str) -> Option<Key> {
     }
 }
 
-/// Parse a phrase into a sequence of segments. `{up}`, `{down}`, `{left}`,
-/// `{right}` and `{space}` (case-insensitive) become key presses; everything
-/// else, including unrecognized `{tokens}`, is kept as literal text.
 fn parse_phrase(phrase: &str) -> Vec<Segment> {
     let mut segments = Vec::new();
     let mut literal = String::new();
@@ -40,7 +34,6 @@ fn parse_phrase(phrase: &str) -> Vec<Segment> {
 
     while let Some(c) = chars.next() {
         if c == '{' {
-            // Collect everything up to the closing brace.
             let mut token = String::new();
             let mut closed = false;
             while let Some(&next) = chars.peek() {
@@ -60,12 +53,10 @@ fn parse_phrase(phrase: &str) -> Vec<Segment> {
                     segments.push(Segment::Key(key));
                     continue;
                 }
-                // Unknown token: keep it verbatim as literal text.
                 literal.push('{');
                 literal.push_str(&token);
                 literal.push('}');
             } else {
-                // No closing brace: treat the rest as literal text.
                 literal.push('{');
                 literal.push_str(&token);
             }
@@ -95,46 +86,49 @@ fn start_typing(
         return Err("Interval must be at least 1 second".to_string());
     }
 
-    let cancel_token = Arc::new(AtomicBool::new(false));
-    let cancel_token_clone = Arc::clone(&cancel_token);
-    let phrase_clone = phrase.clone();
+    let segments = parse_phrase(&phrase);
+    if segments.is_empty() {
+        return Err("Phrase cannot be empty".to_string());
+    }
+
+    let (stop_sender, stop_receiver) = channel::<()>();
+    let interval = Duration::from_secs(interval_seconds);
 
     std::thread::spawn(move || {
-        let mut enigo = Enigo::new(&Settings::default()).expect("Failed to init Enigo");
-        println!(
-            "Timer started: phrase='{}' interval={} sec",
-            phrase_clone, interval_seconds
-        );
-        loop {
-            if cancel_token_clone.load(Ordering::Relaxed) {
-                println!("Timer stopped");
-                break;
+        let mut enigo = match Enigo::new(&Settings::default()) {
+            Ok(e) => e,
+            Err(err) => {
+                eprintln!("Failed to initialize Enigo: {:?}", err);
+                return;
             }
+        };
 
-            println!("Tick: typing -> {}", phrase_clone);
-            for segment in parse_phrase(&phrase_clone) {
+        loop {
+            // Instant trigger on tick
+            for segment in &segments {
                 let result = match segment {
-                    Segment::Text(ref text) => enigo.text(text),
-                    Segment::Key(key) => enigo.key(key, Direction::Click),
+                    Segment::Text(text) => enigo.text(text),
+                    Segment::Key(key) => enigo.key(*key, Direction::Click),
                 };
                 if let Err(e) = result {
                     eprintln!("Typing error: {:?}", e);
                 }
             }
 
-            // Sleep in 100ms chunks to remain responsive to cancel token
-            let chunks = interval_seconds * 10;
-            for _ in 0..chunks {
-                std::thread::sleep(Duration::from_millis(100));
-                if cancel_token_clone.load(Ordering::Relaxed) {
+            // Zero CPU usage wait with immediate wake on stop signal
+            match stop_receiver.recv_timeout(interval) {
+                Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Interval elapsed, continue loop for next tick
                 }
             }
         }
     });
 
     app_state.is_running = true;
-    app_state.cancel_token = Some(cancel_token);
+    app_state.stop_sender = Some(stop_sender);
     Ok(())
 }
 
@@ -144,12 +138,10 @@ fn stop_typing(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
     if !app_state.is_running {
         return Err("Not running".to_string());
     }
-    if let Some(token) = &app_state.cancel_token {
-        token.store(true, Ordering::Relaxed);
+    if let Some(sender) = app_state.stop_sender.take() {
+        let _ = sender.send(());
     }
-    app_state.cancel_token = None;
     app_state.is_running = false;
-    println!("User stopped typing");
     Ok(())
 }
 
@@ -162,7 +154,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(AppState {
             is_running: false,
-            cancel_token: None,
+            stop_sender: None,
         }))
         .invoke_handler(tauri::generate_handler![start_typing, stop_typing])
         .run(tauri::generate_context!())

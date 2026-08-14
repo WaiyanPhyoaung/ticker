@@ -12,9 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "ticker",
-        "width": 800,
-        "height": 600
+        "title": "Ticker",
+        "width": 440,
+        "height": 640,
+        "resizable": false
       }
     ],
     "security": {

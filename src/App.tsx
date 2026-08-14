@@ -1,14 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@tauri-apps/plugin-os";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
+const INTERVAL_PRESETS = [
+  { label: "10s", value: "10" },
+  { label: "30s", value: "30" },
+  { label: "1m", value: "60" },
+  { label: "5m", value: "300" },
+  { label: "15m", value: "900" },
+];
+
+const KEY_TOKENS = [
+  { label: "↑ Up", token: "{up}" },
+  { label: "↓ Down", token: "{down}" },
+  { label: "← Left", token: "{left}" },
+  { label: "→ Right", token: "{right}" },
+  { label: "␣ Space", token: "{space}" },
+];
+
 function App() {
   const [phrase, setPhrase] = useState("");
   const [intervalSeconds, setIntervalSeconds] = useState("60");
   const [isRunning, setIsRunning] = useState(false);
+  const [tickCount, setTickCount] = useState(0);
+  const [secondsUntilNextTick, setSecondsUntilNextTick] = useState(60);
   const [errorMessage, setErrorMessage] = useState("");
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [currentPlatform, setCurrentPlatform] = useState<string>("unknown");
@@ -22,7 +40,7 @@ function App() {
   const [updateStatusText, setUpdateStatusText] = useState("Downloading...");
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
-  const checkForUpdates = async (manual = false) => {
+  const checkForUpdates = useCallback(async (manual = false) => {
     if (isCheckingUpdate || isUpdating) return;
     setIsCheckingUpdate(true);
     setUpdateMessage(null);
@@ -43,7 +61,7 @@ function App() {
     } finally {
       setIsCheckingUpdate(false);
     }
-  };
+  }, [isCheckingUpdate, isUpdating]);
 
   const handleInstallUpdate = async () => {
     if (!availableUpdate || isUpdating) return;
@@ -89,11 +107,32 @@ function App() {
       setCurrentPlatform("unknown");
     }
 
-    // Auto-check for updates on launch
     void checkForUpdates(false);
-  }, []);
+  }, [checkForUpdates]);
 
-  const intervalNumber = Number(intervalSeconds);
+  const intervalNumber = Math.max(1, Number(intervalSeconds) || 1);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (!isRunning) {
+      setSecondsUntilNextTick(intervalNumber);
+      return;
+    }
+
+    setSecondsUntilNextTick(intervalNumber);
+    const timer = setInterval(() => {
+      setSecondsUntilNextTick((prev) => {
+        if (prev <= 1) {
+          setTickCount((c) => c + 1);
+          return intervalNumber;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isRunning, intervalNumber]);
+
   const isIntervalValid =
     Number.isFinite(intervalNumber) && intervalNumber >= 1;
   const isPhraseValid = phrase.trim().length > 0;
@@ -101,14 +140,6 @@ function App() {
   const canStart =
     isPhraseValid && isIntervalValid && !isRunning && !showPermissionModal;
   const canStop = isRunning;
-
-  const keyTokens = [
-    { label: "↑", token: "{up}" },
-    { label: "↓", token: "{down}" },
-    { label: "←", token: "{left}" },
-    { label: "→", token: "{right}" },
-    { label: "Space", token: "{space}" },
-  ];
 
   const insertToken = (token: string) => {
     const input = phraseInputRef.current;
@@ -130,8 +161,10 @@ function App() {
     try {
       await invoke("start_typing", {
         phrase,
-        intervalSeconds: Number(intervalSeconds),
+        intervalSeconds: intervalNumber,
       });
+      setTickCount(1);
+      setSecondsUntilNextTick(intervalNumber);
       setIsRunning(true);
     } catch (error) {
       setErrorMessage(
@@ -164,27 +197,36 @@ function App() {
     );
   };
 
+  const progressPercent = isRunning
+    ? Math.max(0, Math.min(100, ((intervalNumber - secondsUntilNextTick) / intervalNumber) * 100))
+    : 0;
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#09090b] text-neutral-200 font-sans selection:bg-neutral-800">
+    <main className="flex min-h-screen items-center justify-center bg-[#09090b] text-neutral-200 font-sans selection:bg-neutral-800 antialiased select-none">
       {showPermissionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-[#18181b] border border-neutral-800 p-8 shadow-2xl">
-            <h2 className="text-xl font-medium text-white mb-2">Accessibility Access</h2>
-            <p className="text-sm text-neutral-400 mb-6 leading-relaxed">
-              Ticker needs accessibility permissions to simulate keyboard strokes.
+          <div className="w-full max-w-sm rounded-2xl bg-[#18181b] border border-neutral-800 p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+              <h2 className="text-base font-medium text-white">Accessibility Permission</h2>
+            </div>
+            <p className="text-xs text-neutral-400 mb-4 leading-relaxed">
+              Ticker requires accessibility privileges to simulate keyboard strokes.
             </p>
 
             {currentPlatform === "macos" && (
-              <div className="mb-6 space-y-3 text-sm text-neutral-500">
+              <div className="mb-4 space-y-2 text-xs text-neutral-400 bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
                 <p>1. Open System Settings → Privacy & Security</p>
                 <p>2. Select Accessibility</p>
-                <p>3. Toggle switch for Ticker</p>
+                <p>3. Toggle on for Ticker</p>
                 <button
                   type="button"
                   onClick={() => void handleOpenMacSettings()}
-                  className="mt-2 w-full rounded-lg bg-neutral-800 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 active:scale-[0.98]"
+                  className="mt-2 w-full rounded-lg bg-neutral-800 py-2 text-xs font-medium text-white transition hover:bg-neutral-700 active:scale-[0.98]"
                 >
-                  Open Settings
+                  Open System Settings
                 </button>
               </div>
             )}
@@ -192,7 +234,7 @@ function App() {
             <button
               type="button"
               onClick={handleAcknowledgePermissions}
-              className="w-full rounded-lg bg-white py-2.5 text-sm font-medium text-black transition-colors hover:bg-neutral-200 active:scale-[0.98]"
+              className="w-full rounded-lg bg-white py-2 text-xs font-medium text-black transition hover:bg-neutral-200 active:scale-[0.98]"
             >
               Continue
             </button>
@@ -200,22 +242,36 @@ function App() {
         </div>
       )}
 
-      <div className="w-full max-w-sm px-6 py-6">
-        <div className="mb-8 flex flex-col items-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#18181b] border border-neutral-800/80 shadow-sm">
-             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div className="w-full max-w-[380px] px-5 py-6">
+        {/* Header */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700/60 shadow-inner">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-200"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div>
+              <h1 className="text-base font-semibold tracking-tight text-white leading-none">Ticker</h1>
+              <p className="text-[11px] text-neutral-500 mt-0.5">Automated Active State</p>
+            </div>
           </div>
-          <h1 className="text-xl font-medium tracking-tight text-white">Ticker</h1>
-          <p className="mt-1 text-xs text-neutral-500">Automated keyboard events</p>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-[11px] font-medium">
+              <span className={`h-1.5 w-1.5 rounded-full ${isRunning ? "bg-emerald-400 animate-pulse" : "bg-neutral-600"}`} />
+              <span className={isRunning ? "text-emerald-400" : "text-neutral-500"}>
+                {isRunning ? "Active" : "Idle"}
+              </span>
+            </div>
+          </div>
         </div>
 
-        {/* Update Banner */}
+        {/* Update Notification */}
         {availableUpdate && (
-          <div className="mb-6 rounded-2xl border border-indigo-500/20 bg-indigo-950/40 p-4 backdrop-blur-sm">
+          <div className="mb-5 rounded-xl border border-indigo-500/25 bg-indigo-950/40 p-3.5 backdrop-blur-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-xs font-semibold text-indigo-200">
+                <span className="text-xs font-medium text-indigo-200">
                   Update v{availableUpdate.version} ready
                 </span>
               </div>
@@ -230,8 +286,8 @@ function App() {
               )}
             </div>
             {isUpdating ? (
-              <div className="mt-3 space-y-1.5">
-                <div className="flex justify-between text-[11px] text-indigo-300">
+              <div className="mt-2.5 space-y-1.5">
+                <div className="flex justify-between text-[10px] text-indigo-300">
                   <span>{updateStatusText}</span>
                   <span>{updateProgress > 0 ? `${updateProgress}%` : ""}</span>
                 </div>
@@ -246,9 +302,9 @@ function App() {
               <button
                 type="button"
                 onClick={() => void handleInstallUpdate()}
-                className="mt-3 w-full rounded-xl bg-indigo-600 py-2 text-xs font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
+                className="mt-2.5 w-full rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 active:scale-[0.98]"
               >
-                Install Update & Restart
+                Install & Restart
               </button>
             )}
           </div>
@@ -261,42 +317,51 @@ function App() {
             void handleStart();
           }}
         >
+          {/* Phrase Input */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-neutral-400" htmlFor="phrase">
-              Phrase or Action
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-medium text-neutral-400 uppercase tracking-wider" htmlFor="phrase">
+                Phrase / Key Event
+              </label>
+              {!isPhraseValid && phrase.length > 0 && (
+                <span className="text-[11px] text-red-400">Required</span>
+              )}
+            </div>
             <input
               id="phrase"
               ref={phraseInputRef}
               value={phrase}
               onChange={(event) => setPhrase(event.currentTarget.value)}
-              placeholder="e.g. Hello, or {space}"
-              className="w-full rounded-xl border border-neutral-800 bg-[#18181b] px-4 py-3 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 transition-all"
+              placeholder="e.g. {space} or Active"
+              className="w-full rounded-xl border border-neutral-800 bg-[#141416] px-3.5 py-2.5 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 transition-all"
               autoComplete="off"
             />
             
-            <div className="flex gap-2 pt-1 overflow-x-auto pb-1 scrollbar-hide">
-              {keyTokens.map(({ label, token }) => (
+            {/* Quick Key Badges */}
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {KEY_TOKENS.map(({ label, token }) => (
                 <button
                   key={token}
                   type="button"
                   onClick={() => insertToken(token)}
-                  className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900/50 px-2.5 py-1 text-[11px] font-medium text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 active:scale-[0.97]"
+                  className="rounded-lg border border-neutral-800/80 bg-neutral-900/60 px-2 py-1 text-[11px] font-mono font-medium text-neutral-400 transition-all hover:bg-neutral-800 hover:text-neutral-200 hover:border-neutral-700 active:scale-[0.95]"
                 >
                   {label}
                 </button>
               ))}
             </div>
-            
-            {!isPhraseValid && phrase.length > 0 && (
-              <p className="text-xs text-red-400/80">Input required</p>
-            )}
           </div>
 
+          {/* Interval Input & Presets */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-neutral-400" htmlFor="interval">
-              Interval (seconds)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-medium text-neutral-400 uppercase tracking-wider" htmlFor="interval">
+                Interval (Seconds)
+              </label>
+              <span className="text-[11px] text-neutral-500 font-mono">
+                {intervalNumber}s ({Math.round((intervalNumber / 60) * 10) / 10}m)
+              </span>
+            </div>
             <input
               id="interval"
               type="number"
@@ -304,63 +369,90 @@ function App() {
               step={1}
               value={intervalSeconds}
               onChange={(event) => setIntervalSeconds(event.currentTarget.value)}
-              className="w-full rounded-xl border border-neutral-800 bg-[#18181b] px-4 py-3 text-sm text-neutral-200 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 transition-all"
+              className="w-full rounded-xl border border-neutral-800 bg-[#141416] px-3.5 py-2.5 text-sm font-mono text-neutral-100 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 transition-all"
             />
-            {!isIntervalValid && (
-              <p className="text-xs text-red-400/80">Minimum 1s</p>
-            )}
+
+            {/* Presets */}
+            <div className="flex gap-1.5 pt-0.5">
+              {INTERVAL_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => setIntervalSeconds(preset.value)}
+                  className={`flex-1 rounded-lg border py-1 text-[11px] font-mono font-medium transition-all active:scale-[0.95] ${
+                    intervalSeconds === preset.value
+                      ? "border-neutral-600 bg-neutral-800 text-white"
+                      : "border-neutral-800/80 bg-neutral-900/60 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex gap-3 pt-3">
+          {/* Controls */}
+          <div className="flex gap-2.5 pt-2">
             <button
               type="submit"
               disabled={!canStart}
-              className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-30"
+              className="flex-1 rounded-xl bg-white py-2.5 text-xs font-semibold text-black transition-all hover:bg-neutral-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-25 shadow-sm"
             >
-              Start
+              Start Timer
             </button>
             <button
               type="button"
               disabled={!canStop}
               onClick={() => void handleStop()}
-              className="flex-1 rounded-xl border border-neutral-800 bg-transparent px-4 py-3 text-sm font-medium text-neutral-300 transition-all hover:bg-neutral-800 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-30"
+              className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900/60 py-2.5 text-xs font-semibold text-neutral-300 transition-all hover:bg-neutral-800 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-25"
             >
               Stop
             </button>
           </div>
 
           {errorMessage && (
-            <div className="rounded-lg border border-red-500/10 bg-red-500/5 px-3 py-2 text-xs text-red-400/90">
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
               {errorMessage}
             </div>
           )}
         </form>
 
-        <div className="mt-6 flex items-center justify-between rounded-xl border border-neutral-800/60 bg-[#18181b]/50 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="relative flex h-2 w-2 items-center justify-center">
-               {isRunning && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
-               <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${isRunning ? "bg-emerald-500" : "bg-neutral-600"}`} />
-            </div>
-            <span className="text-[11px] font-medium tracking-wider text-neutral-400 uppercase">
-              {isRunning ? "Running" : "Idle"}
-            </span>
-          </div>
+        {/* Live Status Bar & Countdown */}
+        <div className="mt-6 rounded-2xl border border-neutral-800/80 bg-[#141416]/80 p-3.5 backdrop-blur-sm">
           {isRunning ? (
-            <span className="text-[11px] font-medium text-neutral-500">
-              Every {intervalNumber}s
-            </span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span className="text-neutral-400">Next tick in:</span>
+                <span className="font-mono text-emerald-400 font-semibold text-sm">
+                  {secondsUntilNextTick}s
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-1000 ease-linear rounded-full"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-neutral-500 pt-0.5">
+                <span>Active loop</span>
+                <span>Sent {tickCount} times</span>
+              </div>
+            </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => void checkForUpdates(true)}
-              disabled={isCheckingUpdate || isUpdating}
-              className="text-[11px] text-neutral-500 hover:text-neutral-300 transition-colors disabled:opacity-50"
-            >
-              {isCheckingUpdate
-                ? "Checking..."
-                : updateMessage || "Check updates"}
-            </button>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-neutral-500">Ready to start</span>
+              <button
+                type="button"
+                onClick={() => void checkForUpdates(true)}
+                disabled={isCheckingUpdate || isUpdating}
+                className="text-[11px] text-neutral-400 hover:text-white transition-colors disabled:opacity-50"
+              >
+                {isCheckingUpdate ? "Checking..." : updateMessage || "Check for updates"}
+              </button>
+            </div>
           )}
         </div>
       </div>
