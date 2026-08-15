@@ -53,27 +53,19 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            const path = require("path");
-            const os = require("os");
             const rawKey = (process.env.RAW_SIGNING_KEY || "").trim();
             if (!rawKey) {
               console.error("Warning: TAURI_SIGNING_PRIVATE_KEY secret is not set!");
               process.exit(1);
             }
-            let keyContent = rawKey;
-            if (rawKey.startsWith("dW50cnVzdGVk") || (!rawKey.startsWith("untrusted comment") && !rawKey.includes("\n"))) {
-              try {
-                keyContent = Buffer.from(rawKey, "base64").toString("utf-8");
-              } catch (e) {
-                console.error("Base64 decode failed, using raw string:", e);
-              }
+            let base64Key = rawKey;
+            if (rawKey.startsWith("untrusted comment")) {
+              base64Key = Buffer.from(rawKey).toString("base64");
+            } else {
+              base64Key = rawKey.replace(/\s+/g, "");
             }
-            const tauriDir = path.join(os.homedir(), ".tauri");
-            fs.mkdirSync(tauriDir, { recursive: true });
-            const keyPath = path.join(tauriDir, "ticker.key");
-            fs.writeFileSync(keyPath, keyContent.trim() + "\n");
-            console.log("Successfully prepared signing key at:", keyPath);
-            fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${keyPath}\nTAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n`);
+            console.log("Successfully prepared signing key (length: " + base64Key.length + ")");
+            fs.appendFileSync(process.env.GITHUB_ENV, "TAURI_SIGNING_PRIVATE_KEY=" + base64Key + "\nTAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n");
           '
 
       - name: Build the app
