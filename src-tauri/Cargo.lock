@@ -4109,6 +4109,7 @@ dependencies = [
 name = "ticker"
 version = "0.1.0"
 dependencies = [
+ "core-foundation",
  "enigo",
  "serde",
  "serde_json",
